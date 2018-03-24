@@ -314,8 +314,8 @@ endfunction
 
 function TestSwapImages()
 	StartTest("swapping images on a compute shader")
-	img0 = CreateRenderImage(32, 32, 0, 0)
-	img1 = CreateRenderImage(32, 32, 0, 0)
+	img0 = CreateImageFromColor(32, 32, 0, 0, 0)
+	img1 = CreateImageFromColor(32, 32, 0, 0, 0)
 	computeShader = Compute.LoadShader("red.glsl")
 	Compute.SetShaderImage(computeShader, img0, 0)
 	Compute.SetShaderImage(computeShader, img1, 0)

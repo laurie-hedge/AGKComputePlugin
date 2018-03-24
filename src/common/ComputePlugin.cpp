@@ -2,12 +2,15 @@
 #include <cstdarg>
 #include <cstdlib>
 #include <cstring>
+#include <climits>
 #include <unordered_map>
-#ifdef WIN32
+#if defined(WIN32)
 #define WINDOWS_LEAN_AND_MEAN
 #include <Windows.h>
 #include <GL/gl.h>
 #include "glext.h"
+#elif defined(__linux__)
+#include <GL/glew.h>
 #endif
 #include "cImage.h"
 #include "AGKLibraryCommands.h"
@@ -156,19 +159,19 @@ struct Uniform
 
 	template <typename T>
 	bool matchesIdentifier(T identifier);
-
-	template<>
-	bool matchesIdentifier<unsigned int>(unsigned int identifier)
-	{
-		return location == identifier;
-	}
-
-	template<>
-	bool matchesIdentifier<char *>(char *identifier)
-	{
-		return strcmp(identifier, getName()) == 0;
-	}
 };
+
+template<>
+bool Uniform::matchesIdentifier<unsigned int>(unsigned int identifier)
+{
+	return location == identifier;
+}
+
+template<>
+bool Uniform::matchesIdentifier<char *>(char *identifier)
+{
+	return strcmp(identifier, getName()) == 0;
+}
 
 struct UniformBufferBinding {
 	unsigned int bufferID;
@@ -305,7 +308,7 @@ bool CheckInit()
 {
 	switch (pluginState) {
 		case PLUGIN_STATE_UNINITIALISED: {
-#ifdef WIN32
+#if defined(WIN32)
 			glCreateShader = (PFNGLCREATESHADERPROC)wglGetProcAddress("glCreateShader");
 			glShaderSource = (PFNGLSHADERSOURCEPROC)wglGetProcAddress("glShaderSource");
 			glCompileShader = (PFNGLCOMPILESHADERPROC)wglGetProcAddress("glCompileShader");
@@ -354,6 +357,11 @@ bool CheckInit()
 				!glUniform4iv || !glGenBuffers || !glDeleteBuffers ||
 				!glBindBuffer || !glBindBufferBase || !glBufferData ||
 				!glMapBuffer || !glUnmapBuffer || !glGetInteger64v) {
+				pluginState = PLUGIN_STATE_UNSUPPORTED;
+				return false;
+			}
+#elif defined(__linux__)
+			if (GLEW_OK != glewInit()) {
 				pluginState = PLUGIN_STATE_UNSUPPORTED;
 				return false;
 			}
@@ -470,8 +478,8 @@ unsigned int CreateBuffer(GLsizei size, void *data)
 }
 
 template <typename I> struct SetShaderConstantError { static char const *format; };
-char const *SetShaderConstantError<unsigned int>::format = "Failed to find shader constant at location %u in shader %u.";
-char const *SetShaderConstantError<char *>::format = "Failed to find shader constant '%s' in shader %u.";
+template <> char const *SetShaderConstantError<unsigned int>::format = "Failed to find shader constant at location %u in shader %u.";
+template <> char const *SetShaderConstantError<char *>::format = "Failed to find shader constant '%s' in shader %u.";
 
 template <typename T, typename I>
 void SetShaderConstant(unsigned int shaderID, I identifier, int index, T v1, T v2, T v3, T v4)
@@ -542,28 +550,30 @@ extern "C"
 
 		glShaderSource(shaderName, 1, &fullShaderSource, NULL);
 		switch (glGetError()) {
-			default: break;
 			case GL_INVALID_VALUE: {
 				PluginError("Failed to load shader source. Invalid shader name.");
+				free(fullShaderSource);
+				return 0;
 			}
 			case GL_INVALID_OPERATION: {
 				PluginError("Failed to load shader source. Non-shader object provided as shader.");
+				free(fullShaderSource);
+				return 0;
 			}
-			free(fullShaderSource);
-			return 0;
 		}
 
 		glCompileShader(shaderName);
 		switch (glGetError()) {
-			default: break;
 			case GL_INVALID_VALUE: {
 				PluginError("Failed to load shader source. Invalid shader name.");
+				free(fullShaderSource);
+				return 0;
 			}
 			case GL_INVALID_OPERATION: {
 				PluginError("Failed to load shader source. Non-shader object provided as shader.");
+				free(fullShaderSource);
+				return 0;
 			}
-			free(fullShaderSource);
-			return 0;
 		}
 		GLint compileStatus;
 		glGetShaderiv(shaderName, GL_COMPILE_STATUS, &compileStatus);
@@ -589,17 +599,20 @@ extern "C"
 
 		glAttachShader(programName, shaderName);
 		switch (glGetError()) {
-			default: break;
 			case GL_INVALID_VALUE: {
 				PluginError("Failed to attach shader. Invalid shader or program name.");
+				glDeleteShader(shaderName);
+				glDeleteProgram(programName);
+				free(fullShaderSource);
+				return 0;
 			}
 			case GL_INVALID_OPERATION: {
 				PluginError("Failed to attach shader. Non-program or non-shader object used, shader already attached, or shader of same type already attached.");
+				glDeleteShader(shaderName);
+				glDeleteProgram(programName);
+				free(fullShaderSource);
+				return 0;
 			}
-			glDeleteShader(shaderName);
-			glDeleteProgram(programName);
-			free(fullShaderSource);
-			return 0;
 		}
 
 		glLinkProgram(programName);
@@ -635,7 +648,7 @@ extern "C"
 
 		unsigned file = agk::OpenToRead(shaderFile);
 		int size = agk::GetFileSize(file);
-		char *sourceCode = (char *)malloc(size + 1);
+		char *sourceCode = (char *)malloc(size + 2);
 		*sourceCode = '\0';
 		while (!agk::FileEOF(file)) {
 			char *line = agk::ReadLine(file);

@@ -7,7 +7,8 @@ src/Mac/MRTPlugin.xcodeproj/project.xcworkspace/xcuserdata/
 example/Plugins/
 tests/Plugins/
 
-example/example
+examples/flocking/flocking
+examples/paint/paint
 tests/tests
 
 *.VC.db
